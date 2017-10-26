@@ -1,0 +1,100 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates two example Lambda functions which pull an object from S3, modify it, then put the object back
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  MyS3EditorsFile:
+    Type: String
+    Description: The name of the file to store user editor preference data to
+    Default: editors/file.json
+  MyS3WeatherFile:
+    Type: String
+    Description: The name of the file to store weather data to
+    Default: weather/weather.json
+  MyWeatherApiKey:
+    Type: String
+    Description: An API key obtained from https://openweathermap.org/
+    Default: 12345678910abcdefghijklmnop
+    NoEcho: true
+
+Resources:
+  AddUsersEditor:
+    Type: "AWS::Serverless::Function"
+    DependsOn: MyS3Bucket
+    Properties:
+      Runtime: python3.6
+      Handler: editors.main
+      Timeout: 10
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref MyS3Bucket
+          S3_EDITORS_KEY: !Ref MyS3EditorsFile
+      Policies:
+        - AWSLambdaExecute
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+              Resource: !Join ['', ['arn:aws:s3:::', !Ref MyS3Bucket, '*']]
+      Events:
+        AddUser:
+          Type: Api
+          Properties:
+            Path: /{user}
+            Method: put
+  InitializeS3BucketFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: MyS3Bucket
+    Properties:
+      Runtime: python3.6
+      Handler: custom.main
+      Description: Custom resource to put an empty file into the S3 bucket
+      Timeout: 15
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref MyS3Bucket
+          S3_EDITORS_KEY: !Ref MyS3EditorsFile
+          S3_WEATHER_KEY: !Ref MyS3WeatherFile
+      Policies:
+        - AWSLambdaExecute
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: !Join ['', ['arn:aws:s3:::', !Ref MyS3Bucket, '*']]
+  InitializeS3Bucket:
+    Type: Custom::InitializeS3Bucket
+    Properties:
+      ServiceToken: !GetAtt InitializeS3BucketFunction.Arn
+  GetWeather:
+    Type: "AWS::Serverless::Function"
+    DependsOn: MyS3Bucket
+    Properties:
+      Runtime: python3.6
+      Handler: weather.main
+      Timeout: 10
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref MyS3Bucket
+          S3_WEATHER_KEY: !Ref MyS3WeatherFile
+          WEATHER_API_KEY: !Ref MyWeatherApiKey
+      Policies:
+        - AWSLambdaExecute
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+              Resource: !Join ['', ['arn:aws:s3:::', !Ref MyS3Bucket, '*']]
+      Events:
+        Every15Minutes:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+  MyS3Bucket:
+    Type: "AWS::S3::Bucket"
